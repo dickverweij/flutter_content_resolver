@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
@@ -25,7 +26,22 @@ class _MyAppState extends State<MyApp> {
     // This example illustrates how to deal with the content intent with ContentResolver.
     _appLinks = AppLinks();
     _appLinksSub = _appLinks.allStringLinkStream.listen((uri) async {
-      _contentSubject.add(await ContentResolver.resolveContent(uri));
+      final metadata = await ContentResolver.resolveContentMetadata(uri);
+      final bb = BytesBuilder();
+      ContentResolver.resolveContentToStream(uri).listen((event) {
+        print('Received ${event.length} bytes');
+        bb.add(event);
+      }, onDone: () {
+        _contentSubject.add(
+          Content(
+            data: bb.toBytes(),
+            mimeType: metadata.mimeType,
+            fileName: metadata.fileName,
+          ),
+        );
+      });
+
+      //_contentSubject.add(await ContentResolver.resolveContent(uri));
     });
   }
 
