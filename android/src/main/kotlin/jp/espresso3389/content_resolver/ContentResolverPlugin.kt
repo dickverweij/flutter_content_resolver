@@ -1,7 +1,6 @@
 package jp.espresso3389.content_resolver
 
 import android.net.Uri
-import android.os.Handler
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -10,9 +9,11 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
@@ -30,6 +31,8 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
   /// when the Flutter Engine is detached from the Activity
   private lateinit var channel : MethodChannel
   private lateinit var flutterPluginBinding: FlutterPlugin.FlutterPluginBinding
+
+  private val ioScope = CoroutineScope(Dispatchers.IO)
 
   override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
     this.flutterPluginBinding = flutterPluginBinding
@@ -77,7 +80,7 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
             result.success(hashMapOf("mimeType" to getMimeType(uri), "fileName" to getFileName(uri)))
           }
           "streamContent" -> {
-            streamContent(call)
+            streamContent(call, result)
           }
           else -> {
             result.notImplemented()
@@ -115,6 +118,7 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
 
   override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
     channel.setMethodCallHandler(null)
+    ioScope.cancel()
   }
 
   private fun allocBuffer(size: Int): Pair<Long, ByteBuffer> {
@@ -127,35 +131,68 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
     ByteBufferHelper.free(address)
   }
 
-  private fun streamContent(call: MethodCall) = runBlocking {
+  private fun streamContent(call: MethodCall, result: Result) {
     val id = call.argument<Int>("id") as Int
     val uri = Uri.parse(call.argument<String>("uri") as String)
     val bufferSize = call.argument<Int>("bufferSize") as Int
-    readBytes(openInputStream(uri), 0, id, ByteArray(bufferSize))
+    val buffer = ByteArray(bufferSize)
+    try {
+      ioScope.launch {
+        try {
+          openInputStream(uri).use { input ->
+            var bytesReadSoFar = 0
+            while (true) {
+              val length = input.read(buffer)
+              if (length < 0) {
+                input.close()
+                post("close", hashMapOf("id" to id, "totalSize" to bytesReadSoFar))
+                return@launch
+              } else if (length == 0) {
+                continue
+              }
+              send("data",
+                hashMapOf(
+                  "id" to id,
+                  "offset" to bytesReadSoFar,
+                  "data" to buffer.sliceArray(0 until length)
+                ))
+              bytesReadSoFar += length
+            }
+          }
+        } catch (e: Exception) {
+          post("error", hashMapOf("id" to id, "errorMessage" to e.toString()))
+        }
+      }
+      result.success(null)
+    } catch (e: Exception) {
+      result.error("StreamContentError", "Error streaming content", e.toString())
+    }
   }
 
-  private fun readBytes(input: InputStream, bytesReadSoFar: Int, id: Int, buffer: ByteArray) {
-    val length = input.read(buffer)
-    if (length < 0) {
-      input.close()
-      channel.invokeMethod("close",
-        hashMapOf("id" to id, "totalSize" to bytesReadSoFar))
-    } else {
-      channel.invokeMethod("data",
-        hashMapOf("id" to id, "offset" to bytesReadSoFar, "data" to buffer.sliceArray(0 until length)),
-        object: Result {
+  private suspend fun post(method: String, arguments: Any?): Unit {
+    withContext(Dispatchers.Main) {
+      channel.invokeMethod(method, arguments)
+    }
+  }
+
+  private suspend fun send(method: String, arguments: Any?): Any? {
+    val deferred = CompletableDeferred<Any?>()
+    withContext(Dispatchers.Main) {
+      channel.invokeMethod(method, arguments,
+        object : Result {
           override fun success(result: Any?) {
-            this@ContentResolverPlugin.run {
-              readBytes(input, bytesReadSoFar + length, id, buffer)
-            }
+            deferred.complete(Unit)
           }
 
           override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+            deferred.completeExceptionally(Exception("$errorCode: $errorMessage"))
           }
 
           override fun notImplemented() {
+            deferred.completeExceptionally(NotImplementedError())
           }
         })
     }
+    return deferred.await()
   }
 }

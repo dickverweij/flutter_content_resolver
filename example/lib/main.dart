@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:content_resolver/content_resolver.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:rxdart/rxdart.dart';
 
 void main() {
@@ -29,9 +31,9 @@ class _MyAppState extends State<MyApp> {
       final metadata = await ContentResolver.resolveContentMetadata(uri);
       final bb = BytesBuilder();
       ContentResolver.resolveContentToStream(uri).listen((event) {
-        print('Received ${event.length} bytes');
         bb.add(event);
       }, onDone: () {
+        _save(bb.toBytes());
         _contentSubject.add(
           Content(
             data: bb.toBytes(),
@@ -43,6 +45,12 @@ class _MyAppState extends State<MyApp> {
 
       //_contentSubject.add(await ContentResolver.resolveContent(uri));
     });
+  }
+
+  Future<void> _save(Uint8List data) async {
+    final dir = await getExternalStorageDirectory();
+    await dir!.create(recursive: true);
+    await File('${dir.path}/test.jpg').writeAsBytes(data);
   }
 
   @override
