@@ -181,7 +181,7 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
       channel.invokeMethod(method, arguments,
         object : Result {
           override fun success(result: Any?) {
-            deferred.complete(Unit)
+            deferred.complete(result)
           }
 
           override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
