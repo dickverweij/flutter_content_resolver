@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:ffi';
 
 import 'package:flutter/foundation.dart';
@@ -87,7 +86,7 @@ class ContentResolver {
   static int _streamId = 0;
 
   static Stream<Uint8List> resolveContentToStream(String uri,
-      {int bufferSize = 32 * 1024}) async* {
+      {int bufferSize = 32 * 1024}) {
     try {
       final id = ++_streamId;
       final controller = StreamController<Uint8List>();
@@ -98,7 +97,7 @@ class ContentResolver {
         "uri": uri,
         "bufferSize": bufferSize,
       });
-      yield* controller.stream;
+      return controller.stream;
     } on Exception {
       throw Exception('Handling URI "$uri" failed.');
     }

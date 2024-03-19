@@ -94,7 +94,7 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
 
   private fun openInputStream(uri: Uri): InputStream {
     val cr = flutterPluginBinding.applicationContext.contentResolver
-    return BufferedInputStream(ParcelFileDescriptor.AutoCloseInputStream(cr.openFileDescriptor(uri, "r")))
+    return ParcelFileDescriptor.AutoCloseInputStream(cr.openFileDescriptor(uri, "r"))
   }
 
   private fun getMimeType(uri: Uri): String? {
