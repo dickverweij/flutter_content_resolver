@@ -86,7 +86,7 @@ class ContentResolver {
   static int _streamId = 0;
 
   static Stream<Uint8List> resolveContentToStream(String uri,
-      {int bufferSize = 32 * 1024}) {
+      {int bufferSize = 64 * 1024}) {
     try {
       final id = ++_streamId;
       final controller = StreamController<Uint8List>();

@@ -94,7 +94,7 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
 
   private fun openInputStream(uri: Uri): InputStream {
     val cr = flutterPluginBinding.applicationContext.contentResolver
-    return ParcelFileDescriptor.AutoCloseInputStream(cr.openFileDescriptor(uri, "r"))
+    return cr.openInputStream(uri)!!
   }
 
   private fun getMimeType(uri: Uri): String? {
@@ -135,38 +135,36 @@ class ContentResolverPlugin: FlutterPlugin, MethodCallHandler {
     val id = call.argument<Int>("id") as Int
     val uri = Uri.parse(call.argument<String>("uri") as String)
     val bufferSize = call.argument<Int>("bufferSize") as Int
-    val buffer = ByteArray(bufferSize)
-    try {
-      ioScope.launch {
-        try {
-          openInputStream(uri).use { input ->
-            var bytesReadSoFar = 0
-            while (true) {
-              val length = input.read(buffer)
-              if (length < 0) {
-                input.close()
-                post("close", hashMapOf("id" to id, "totalSize" to bytesReadSoFar))
-                return@launch
-              } else if (length == 0) {
-                continue
-              }
-              send("data",
-                hashMapOf(
-                  "id" to id,
-                  "offset" to bytesReadSoFar,
-                  "data" to buffer.sliceArray(0 until length)
-                ))
-              bytesReadSoFar += length
+    ioScope.launch {
+      try {
+        val buffer = ByteArray(bufferSize)
+        var bytesReadSoFar = 0
+        openInputStream(uri).use { input ->
+          while (true) {
+            val length = input.read(buffer)
+            if (length < 0) {
+              input.close()
+              post("close", hashMapOf("id" to id, "totalSize" to bytesReadSoFar))
+              return@launch
+            } else if (length == 0) {
+              continue
             }
+            send(
+              "data",
+              hashMapOf(
+                "id" to id,
+                "offset" to bytesReadSoFar,
+                "data" to buffer.sliceArray(0 until length)
+              )
+            )
+            bytesReadSoFar += length
           }
-        } catch (e: Exception) {
-          post("error", hashMapOf("id" to id, "errorMessage" to e.toString()))
         }
+      } catch (e: Exception) {
+        post("error", hashMapOf("id" to id, "errorMessage" to e.toString()))
       }
-      result.success(null)
-    } catch (e: Exception) {
-      result.error("StreamContentError", "Error streaming content", e.toString())
     }
+    result.success(null)
   }
 
   private suspend fun post(method: String, arguments: Any?): Unit {
