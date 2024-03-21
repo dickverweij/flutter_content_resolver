@@ -53,7 +53,7 @@ class ContentResolver {
   }
 
   /// Save the content of the specified `content:xxxx` style URI to a file.
-  static Future<ContentMetadata> resolveContentAndSaveToFile(
+  static Future<ContentMetadata> resolveContentToFile(
     String uri,
     String filePath,
   ) async {
